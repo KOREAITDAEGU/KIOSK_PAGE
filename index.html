@@ -8,13 +8,13 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
     
     <style>
-        /* 키오스크 전체 화면 레이아웃 */
+        /* 키오스크 전체 화면 최적화 */
         html, body {
             position: relative;
             height: 100%;
             margin: 0;
             padding: 0;
-            overflow: hidden;
+            overflow: hidden; /* 스크롤바 절대 방지 */
             background-color: #000;
         }
 
@@ -30,33 +30,36 @@
             background: #000;
         }
 
-        /* 이미지 비율 유지 및 화면 최적화 */
         .swiper-slide img {
-            max-width: 100%;
-            max-height: 100%;
-            width: auto;
-            height: auto;
+            /* 이미지가 작게 보이지 않도록 화면에 꽉 채우는 설정 */
+            width: 100%;
+            height: 100%;
+            /* 포스터 비율에 맞춰 왜곡 없이 채우려면 cover, 
+               약간의 왜곡이 있어도 전체를 다 보여주려면 fill을 사용하세요. */
             object-fit: contain; 
         }
 
-        /* 하단 페이지네이션 */
+        /* 하단 페이지네이션(점) 디자인 개선 - 키오스크 가독성용 */
         .swiper-pagination-bullet {
-            width: 14px;
-            height: 14px;
+            width: 16px;
+            height: 16px;
             background: #fff;
             opacity: 0.5;
+            margin: 0 10px !important;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
         }
         .swiper-pagination-bullet-active {
             background: #007aff;
             opacity: 1;
+            transform: scale(1.2);
         }
     </style>
 </head>
 <body>
 
     <div class="swiper mySwiper">
-        <div class="swiper-wrapper" id="poster-wrapper">
-            </div>
+        <div class="swiper-wrapper" id="poster-wrapper"></div>
+        
         <div class="swiper-pagination"></div>
     </div>
 
@@ -64,40 +67,79 @@
 
     <script>
         /**
-         * GitHub Pages 호환성 및 확장자 대응 설정
+         * 1. 설정 변수
+         * imageCount: 체크할 최대 파일 번호 (예: 20이면 01~20까지 검사)
+         * extensions: 허용할 이미지 확장자 (대소문자 구분 대응)
          */
-        const imageCount = 10; // 체크할 최대 이미지 번호
-        const imageFolder = "img"; // 폴더명
-        const extensions = ["jpg", "png", "JPG", "PNG", "jpeg"]; // 체크할 확장자 목록
+        const imageCount = 20; 
+        const imageFolder = "img";
+        const extensions = ["png", "jpg", "jpeg", "PNG", "JPG"];
         const wrapper = document.getElementById('poster-wrapper');
+        
+        // Swiper 설정값 (setup.json에서 로드)
+        let swiperConfig = null;
 
-        // 이미지 로드 함수
-        async function loadImages() {
+        // setup.json 파일 로드
+        async function loadSwiperConfig() {
+            try {
+                const response = await fetch('./setup.json');
+                if (response.ok) {
+                    swiperConfig = await response.json();
+                } else {
+                    // 파일이 없거나 오류 시 기본값 사용
+                    swiperConfig = getDefaultConfig();
+                }
+            } catch (error) {
+                console.warn('setup.json 로드 실패, 기본 설정 사용:', error);
+                swiperConfig = getDefaultConfig();
+            }
+        }
+
+        // 기본 설정값
+        function getDefaultConfig() {
+            return {
+                effect: 'fade',
+                speed: 1500,
+                autoplay: {
+                    delay: 5000,
+                    disableOnInteraction: false
+                },
+                loop: true,
+                pagination: {
+                    clickable: true
+                },
+                fadeEffect: {
+                    crossFade: true
+                }
+            };
+        }
+
+        // 이미지 존재 여부를 확인하고 슬라이드를 생성하는 함수
+        async function loadAndRenderPosters() {
+            let loadedCount = 0;
+
             for (let i = 1; i <= imageCount; i++) {
-                const fileNameBase = String(i).padStart(2, '0'); // "01", "02"...
+                const fileNameBase = String(i).padStart(2, '0'); // 01, 02...
                 
-                // 각 번호당 지원하는 확장자를 순회하며 존재하는 파일을 찾음
+                // 각 번호당 확장자별로 파일이 존재하는지 순차 확인
                 for (const ext of extensions) {
                     const filePath = `./${imageFolder}/${fileNameBase}.${ext}`;
                     
-                    try {
-                        const exists = await checkImageExists(filePath);
-                        if (exists) {
-                            createSlide(filePath);
-                            break; // 파일 하나를 찾으면 해당 번호의 루프 종료 (다음 번호로)
-                        }
-                    } catch (e) {
-                        console.error("이미지 로드 중 오류:", e);
+                    const isFound = await checkFile(filePath);
+                    if (isFound) {
+                        addSlideToWrapper(filePath);
+                        loadedCount++;
+                        break; // 파일을 찾으면 해당 번호는 종료하고 다음 번호로
                     }
                 }
             }
 
-            // 모든 이미지가 로드된 후 Swiper 초기화
-            initSwiper();
+            // 모든 검사가 끝난 후 Swiper 실행
+            startSwiper(loadedCount);
         }
 
-        // 이미지 존재 여부 확인 함수
-        function checkImageExists(url) {
+        // 실제 이미지가 서버에 있는지 비동기 체크
+        function checkFile(url) {
             return new Promise((resolve) => {
                 const img = new Image();
                 img.onload = () => resolve(true);
@@ -106,47 +148,66 @@
             });
         }
 
-        // 슬라이드 HTML 생성
-        function createSlide(path) {
+        // 슬라이드 HTML 추가
+        function addSlideToWrapper(path) {
             const slide = document.createElement('div');
             slide.className = 'swiper-slide';
             
             const img = document.createElement('img');
             img.src = path;
-            img.loading = "lazy"; // 성능 최적화
+            img.alt = "Kiosk Poster";
             
             slide.appendChild(img);
             wrapper.appendChild(slide);
         }
 
-        // Swiper 초기화
-        function initSwiper() {
-            if (wrapper.children.length === 0) {
-                wrapper.innerHTML = '<div class="swiper-slide" style="color:#fff;">표시할 포스터가 없습니다.</div>';
+        // Swiper 초기화 설정
+        function startSwiper(count) {
+            if (count === 0) {
+                wrapper.innerHTML = '<div class="swiper-slide" style="color:white; font-size:24px;">img 폴더에 01.png 또는 02.jpg 등의 파일을 넣어주세요.</div>';
+                return;
             }
 
-            const swiper = new Swiper(".mySwiper", {
-                loop: wrapper.children.length > 1, // 슬라이드가 1개 이상일 때만 루프
-                speed: 1000,
+            // setup.json에서 로드한 설정값 사용 (없으면 기본값)
+            const config = swiperConfig || getDefaultConfig();
+
+            // Swiper 옵션 구성
+            const swiperOptions = {
+                loop: config.loop !== undefined ? (count > 1 && config.loop) : (count > 1),
+                effect: config.effect || 'fade',
+                speed: config.speed || 1500,
                 autoplay: {
-                    delay: 5000,
-                    disableOnInteraction: false,
+                    delay: config.autoplay?.delay || 5000,
+                    disableOnInteraction: config.autoplay?.disableOnInteraction !== undefined 
+                        ? config.autoplay.disableOnInteraction 
+                        : false,
                 },
                 pagination: {
                     el: ".swiper-pagination",
-                    clickable: true,
+                    clickable: config.pagination?.clickable !== undefined 
+                        ? config.pagination.clickable 
+                        : true,
                 },
-                keyboard: {
-                    enabled: true,
-                }
-            });
+            };
+
+            // fade 효과일 때만 fadeEffect 옵션 추가
+            if (config.effect === 'fade' && config.fadeEffect) {
+                swiperOptions.fadeEffect = config.fadeEffect;
+            }
+
+            new Swiper(".mySwiper", swiperOptions);
         }
 
-        // 실행
-        loadImages();
+        // 실행: setup.json 로드 후 이미지 로드 및 Swiper 초기화
+        (async function init() {
+            await loadSwiperConfig();
+            await loadAndRenderPosters();
+        })();
 
-        // 키오스크 보안 및 관리용: 우클릭 방지
+        // 키오스크 전용: 우클릭, 드래그, 선택 방지
         document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('dragstart', e => e.preventDefault());
+        document.addEventListener('selectstart', e => e.preventDefault());
     </script>
 </body>
 </html>
