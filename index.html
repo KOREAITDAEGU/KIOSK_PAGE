@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiosk Poster System</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
+    
+    <style>
+        /* 키오스크 전체 화면 레이아웃 */
+        html, body {
+            position: relative;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        .swiper {
+            width: 100%;
+            height: 100%;
+        }
+
+        .swiper-slide {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+        }
+
+        /* 이미지 비율 유지 및 화면 최적화 */
+        .swiper-slide img {
+            max-width: 100%;
+            max-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain; 
+        }
+
+        /* 하단 페이지네이션 */
+        .swiper-pagination-bullet {
+            width: 14px;
+            height: 14px;
+            background: #fff;
+            opacity: 0.5;
+        }
+        .swiper-pagination-bullet-active {
+            background: #007aff;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="swiper mySwiper">
+        <div class="swiper-wrapper" id="poster-wrapper">
+            </div>
+        <div class="swiper-pagination"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+
+    <script>
+        /**
+         * GitHub Pages 호환성 및 확장자 대응 설정
+         */
+        const imageCount = 10; // 체크할 최대 이미지 번호
+        const imageFolder = "img"; // 폴더명
+        const extensions = ["jpg", "png", "JPG", "PNG", "jpeg"]; // 체크할 확장자 목록
+        const wrapper = document.getElementById('poster-wrapper');
+
+        // 이미지 로드 함수
+        async function loadImages() {
+            for (let i = 1; i <= imageCount; i++) {
+                const fileNameBase = String(i).padStart(2, '0'); // "01", "02"...
+                
+                // 각 번호당 지원하는 확장자를 순회하며 존재하는 파일을 찾음
+                for (const ext of extensions) {
+                    const filePath = `./${imageFolder}/${fileNameBase}.${ext}`;
+                    
+                    try {
+                        const exists = await checkImageExists(filePath);
+                        if (exists) {
+                            createSlide(filePath);
+                            break; // 파일 하나를 찾으면 해당 번호의 루프 종료 (다음 번호로)
+                        }
+                    } catch (e) {
+                        console.error("이미지 로드 중 오류:", e);
+                    }
+                }
+            }
+
+            // 모든 이미지가 로드된 후 Swiper 초기화
+            initSwiper();
+        }
+
+        // 이미지 존재 여부 확인 함수
+        function checkImageExists(url) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve(true);
+                img.onerror = () => resolve(false);
+                img.src = url;
+            });
+        }
+
+        // 슬라이드 HTML 생성
+        function createSlide(path) {
+            const slide = document.createElement('div');
+            slide.className = 'swiper-slide';
+            
+            const img = document.createElement('img');
+            img.src = path;
+            img.loading = "lazy"; // 성능 최적화
+            
+            slide.appendChild(img);
+            wrapper.appendChild(slide);
+        }
+
+        // Swiper 초기화
+        function initSwiper() {
+            if (wrapper.children.length === 0) {
+                wrapper.innerHTML = '<div class="swiper-slide" style="color:#fff;">표시할 포스터가 없습니다.</div>';
+            }
+
+            const swiper = new Swiper(".mySwiper", {
+                loop: wrapper.children.length > 1, // 슬라이드가 1개 이상일 때만 루프
+                speed: 1000,
+                autoplay: {
+                    delay: 5000,
+                    disableOnInteraction: false,
+                },
+                pagination: {
+                    el: ".swiper-pagination",
+                    clickable: true,
+                },
+                keyboard: {
+                    enabled: true,
+                }
+            });
+        }
+
+        // 실행
+        loadImages();
+
+        // 키오스크 보안 및 관리용: 우클릭 방지
+        document.addEventListener('contextmenu', e => e.preventDefault());
+    </script>
+</body>
+</html>
