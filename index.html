@@ -30,13 +30,18 @@
             background: #000;
         }
 
-        .swiper-slide img {
-            /* 이미지가 작게 보이지 않도록 화면에 꽉 채우는 설정 */
+        .swiper-slide img,
+        .swiper-slide video {
+            /* 이미지/영상이 작게 보이지 않도록 화면에 꽉 채우는 설정 */
             width: 100%;
             height: 100%;
             /* 포스터 비율에 맞춰 왜곡 없이 채우려면 cover, 
                약간의 왜곡이 있어도 전체를 다 보여주려면 fill을 사용하세요. */
             object-fit: contain; 
+        }
+        
+        .swiper-slide video {
+            display: block;
         }
 
         /* 하단 페이지네이션(점) 디자인 개선 - 키오스크 가독성용 */
@@ -72,26 +77,41 @@
          * extensions: 허용할 이미지 확장자 (대소문자 구분 대응)
          */
         const imageCount = 20; 
-        const imageFolder = "img";
-        const extensions = ["png", "jpg", "jpeg", "PNG", "JPG"];
+        const imageFolder = "upload";
+        const imageExtensions = ["png", "jpg", "jpeg", "gif", "PNG", "JPG", "JPEG", "GIF"];
+        const videoExtensions = ["mp4", "MP4", "mov", "MOV", "webm", "WEBM"];
+        const allExtensions = [...imageExtensions, ...videoExtensions];
         const wrapper = document.getElementById('poster-wrapper');
+        
+        // 슬라이드 메타데이터 저장 (타입, 경로, 길이)
+        const slideMetadata = [];
         
         // Swiper 설정값 (setup.json에서 로드)
         let swiperConfig = null;
+        let swiperInstance = null;
 
         // setup.json 파일 로드
         async function loadSwiperConfig() {
             try {
-                const response = await fetch('./setup.json');
+                // 캐시 방지를 위해 타임스탬프 추가
+                const cacheBuster = '?t=' + new Date().getTime();
+                const response = await fetch('./setup.json' + cacheBuster);
                 if (response.ok) {
-                    swiperConfig = await response.json();
+                    const loadedConfig = await response.json();
+                    console.log('setup.json 원본 데이터:', JSON.stringify(loadedConfig, null, 2));
+                    console.log('setup.json autoplay.delay:', loadedConfig.autoplay?.delay);
+                    
+                    swiperConfig = loadedConfig;
+                    console.log('setup.json 로드 성공:', swiperConfig);
                 } else {
                     // 파일이 없거나 오류 시 기본값 사용
                     swiperConfig = getDefaultConfig();
+                    console.warn('setup.json 파일을 찾을 수 없습니다. 기본 설정을 사용합니다.');
                 }
             } catch (error) {
-                console.warn('setup.json 로드 실패, 기본 설정 사용:', error);
+                // 파일이 없을 때는 조용히 기본값 사용
                 swiperConfig = getDefaultConfig();
+                console.warn('setup.json 로드 실패. 기본 설정을 사용합니다:', error.message);
             }
         }
 
@@ -101,7 +121,7 @@
                 effect: 'fade',
                 speed: 1500,
                 autoplay: {
-                    delay: 5000,
+                    delay: 12000,
                     disableOnInteraction: false
                 },
                 loop: true,
@@ -114,7 +134,7 @@
             };
         }
 
-        // 이미지 존재 여부를 확인하고 슬라이드를 생성하는 함수
+        // 파일 존재 여부를 확인하고 슬라이드를 생성하는 함수 (이미지/영상 모두 지원)
         async function loadAndRenderPosters() {
             let loadedCount = 0;
 
@@ -122,13 +142,25 @@
                 const fileNameBase = String(i).padStart(2, '0'); // 01, 02...
                 
                 // 각 번호당 확장자별로 파일이 존재하는지 순차 확인
-                for (const ext of extensions) {
+                let fileFound = false;
+                for (const ext of allExtensions) {
                     const filePath = `./${imageFolder}/${fileNameBase}.${ext}`;
+                    const fileType = getFileType(ext);
                     
-                    const isFound = await checkFile(filePath);
+                    if (!fileType) continue;
+                    
+                    const isFound = await checkFile(filePath, fileType);
                     if (isFound) {
-                        addSlideToWrapper(filePath);
+                        let duration = null;
+                        
+                        // 영상인 경우 길이 가져오기
+                        if (fileType === 'video') {
+                            duration = await getVideoDuration(filePath);
+                        }
+                        
+                        addSlideToWrapper(filePath, fileType, duration);
                         loadedCount++;
+                        fileFound = true;
                         break; // 파일을 찾으면 해당 번호는 종료하고 다음 번호로
                     }
                 }
@@ -138,38 +170,121 @@
             startSwiper(loadedCount);
         }
 
-        // 실제 이미지가 서버에 있는지 비동기 체크
-        function checkFile(url) {
+        // 파일 타입 판별 함수
+        function getFileType(ext) {
+            const lowerExt = ext.toLowerCase();
+            if (imageExtensions.some(e => e.toLowerCase() === lowerExt)) {
+                return 'image';
+            } else if (videoExtensions.some(e => e.toLowerCase() === lowerExt)) {
+                return 'video';
+            }
+            return null;
+        }
+
+        // 실제 파일이 서버에 있는지 비동기 체크 (이미지/영상 모두 지원)
+        function checkFile(url, fileType) {
             return new Promise((resolve) => {
-                const img = new Image();
-                img.onload = () => resolve(true);
-                img.onerror = () => resolve(false);
-                img.src = url;
+                if (fileType === 'image') {
+                    const img = new Image();
+                    img.onload = () => resolve(true);
+                    img.onerror = () => resolve(false);
+                    img.src = url;
+                } else if (fileType === 'video') {
+                    const video = document.createElement('video');
+                    video.onloadedmetadata = () => resolve(true);
+                    video.onerror = () => resolve(false);
+                    video.src = url;
+                } else {
+                    resolve(false);
+                }
             });
         }
 
-        // 슬라이드 HTML 추가
-        function addSlideToWrapper(path) {
+        // 영상 길이(초) 가져오는 함수
+        function getVideoDuration(url) {
+            return new Promise((resolve) => {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.onloadedmetadata = () => {
+                    window.URL.revokeObjectURL(video.src);
+                    resolve(video.duration || 5); // 기본값 5초
+                };
+                video.onerror = () => {
+                    window.URL.revokeObjectURL(video.src);
+                    resolve(5); // 실패 시 기본값 5초
+                };
+                video.src = url;
+            });
+        }
+
+        // 슬라이드 HTML 추가 (이미지/영상 구분)
+        function addSlideToWrapper(path, fileType, duration = null) {
             const slide = document.createElement('div');
             slide.className = 'swiper-slide';
             
-            const img = document.createElement('img');
-            img.src = path;
-            img.alt = "Kiosk Poster";
+            if (fileType === 'image') {
+                const img = document.createElement('img');
+                img.src = path;
+                img.alt = "Kiosk Poster";
+                slide.appendChild(img);
+            } else if (fileType === 'video') {
+                const video = document.createElement('video');
+                video.src = path;
+                video.autoplay = true;
+                video.muted = true;
+                video.loop = false;
+                video.playsInline = true;
+                video.controls = false;
+                slide.appendChild(video);
+                
+                // 영상 재생 완료 시 다음 슬라이드로 이동
+                video.addEventListener('ended', () => {
+                    if (swiperInstance) {
+                        // 다음 슬라이드로 이동
+                        swiperInstance.slideNext();
+                        // 다음 슬라이드가 이미지/GIF면 autoplay가 자동으로 재시작됨 (slideChange 이벤트에서)
+                    }
+                });
+            }
             
-            slide.appendChild(img);
+            // 메타데이터 저장
+            slideMetadata.push({
+                type: fileType,
+                path: path,
+                duration: duration
+            });
+            
             wrapper.appendChild(slide);
         }
 
         // Swiper 초기화 설정
         function startSwiper(count) {
             if (count === 0) {
-                wrapper.innerHTML = '<div class="swiper-slide" style="color:white; font-size:24px;">img 폴더에 01.png 또는 02.jpg 등의 파일을 넣어주세요.</div>';
+                wrapper.innerHTML = '<div class="swiper-slide" style="color:white; font-size:24px;">upload 폴더에 01.png, 02.jpg 또는 03.mp4 등의 파일을 넣어주세요.</div>';
                 return;
             }
 
             // setup.json에서 로드한 설정값 사용 (없으면 기본값)
             const config = swiperConfig || getDefaultConfig();
+
+            // 디버깅: 로드된 config 상세 확인
+            console.log('로드된 config 전체:', JSON.stringify(config, null, 2));
+            console.log('config.autoplay:', config.autoplay);
+            console.log('config.autoplay?.delay:', config.autoplay?.delay);
+
+            // 기본 autoplay delay (이미지/GIF용) - setup.json에서 가져옴
+            const defaultDelay = config.autoplay?.delay || 12000;
+            
+            // 디버깅: setup.json 적용 확인
+            console.log('Swiper 설정 적용:', {
+                delay: defaultDelay + 'ms',
+                effect: config.effect,
+                speed: config.speed,
+                setupJsonLoaded: !!swiperConfig,
+                configSource: swiperConfig ? 'setup.json' : '기본값',
+                autoplayDelay: config.autoplay?.delay,
+                autoplayObject: config.autoplay
+            });
 
             // Swiper 옵션 구성
             const swiperOptions = {
@@ -177,7 +292,7 @@
                 effect: config.effect || 'fade',
                 speed: config.speed || 1500,
                 autoplay: {
-                    delay: config.autoplay?.delay || 5000,
+                    delay: defaultDelay,
                     disableOnInteraction: config.autoplay?.disableOnInteraction !== undefined 
                         ? config.autoplay.disableOnInteraction 
                         : false,
@@ -188,6 +303,43 @@
                         ? config.pagination.clickable 
                         : true,
                 },
+                on: {
+                    slideChange: function() {
+                        // 슬라이드 변경 시 현재 슬라이드의 타입에 따라 autoplay 처리
+                        const currentIndex = this.realIndex;
+                        const currentSlide = slideMetadata[currentIndex];
+                        
+                        if (currentSlide) {
+                            if (currentSlide.type === 'video') {
+                                // 영상인 경우: autoplay 중지하고 영상 재생 완료까지 대기
+                                if (this.autoplay.running) {
+                                    this.autoplay.stop();
+                                }
+                                
+                                // 현재 슬라이드의 video 요소 재생 시작
+                                const currentSlideElement = this.slides[this.activeIndex];
+                                const video = currentSlideElement.querySelector('video');
+                                if (video) {
+                                    video.currentTime = 0;
+                                    video.play().catch(e => console.warn('Video autoplay failed:', e));
+                                }
+                            } else {
+                                // 이미지/GIF인 경우: setup.json의 delay로 autoplay 재시작
+                                // 클로저로 캡처한 defaultDelay 사용 (setup.json에서 가져온 값)
+                                
+                                // delay가 변경되었거나 autoplay가 중지된 경우 재시작
+                                if (this.params.autoplay.delay !== defaultDelay || !this.autoplay.running) {
+                                    this.params.autoplay.delay = defaultDelay;
+                                    if (this.autoplay.running) {
+                                        this.autoplay.stop();
+                                    }
+                                    this.autoplay.start();
+                                    console.log('이미지/GIF 슬라이드 - autoplay delay 설정:', defaultDelay + 'ms');
+                                }
+                            }
+                        }
+                    }
+                }
             };
 
             // fade 효과일 때만 fadeEffect 옵션 추가
@@ -195,7 +347,22 @@
                 swiperOptions.fadeEffect = config.fadeEffect;
             }
 
-            new Swiper(".mySwiper", swiperOptions);
+            swiperInstance = new Swiper(".mySwiper", swiperOptions);
+            
+            // 첫 번째 슬라이드가 영상인 경우 autoplay 중지
+            if (slideMetadata.length > 0 && slideMetadata[0].type === 'video') {
+                if (swiperInstance.autoplay.running) {
+                    swiperInstance.autoplay.stop();
+                }
+                // 첫 번째 영상 재생 시작
+                setTimeout(() => {
+                    const firstSlideElement = swiperInstance.slides[swiperInstance.activeIndex];
+                    const video = firstSlideElement?.querySelector('video');
+                    if (video) {
+                        video.play().catch(e => console.warn('Video autoplay failed:', e));
+                    }
+                }, 100);
+            }
         }
 
         // 실행: setup.json 로드 후 이미지 로드 및 Swiper 초기화
