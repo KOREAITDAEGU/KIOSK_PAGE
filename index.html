@@ -89,13 +89,6 @@
         // Swiper 설정값 (setup.json에서 로드)
         let swiperConfig = null;
         let swiperInstance = null;
-        
-        // 모니터링 및 복구를 위한 전역 변수
-        let autoplayMonitorInterval = null;
-        let slideChangeMonitorInterval = null;
-        let lastSlideChangeTime = Date.now();
-        let videoPlayTimeout = null;
-        let videoEndCheckInterval = null;
 
         // setup.json 파일 로드
         async function loadSwiperConfig() {
@@ -188,92 +181,22 @@
             return null;
         }
 
-        // 실제 파일이 서버에 있는지 비동기 체크 (이미지/영상 모두 지원) - 8단계: 타임아웃 및 재시도 추가
-        function checkFile(url, fileType, retries = 2) {
+        // 실제 파일이 서버에 있는지 비동기 체크 (이미지/영상 모두 지원)
+        function checkFile(url, fileType) {
             return new Promise((resolve) => {
-                let timeoutId;
-                let resolved = false;
-                
-                const cleanup = () => {
-                    if (timeoutId) clearTimeout(timeoutId);
-                };
-                
-                const check = () => {
-                    if (fileType === 'image') {
-                        const img = new Image();
-                        img.onload = () => {
-                            if (!resolved) {
-                                resolved = true;
-                                cleanup();
-                                resolve(true);
-                            }
-                        };
-                        img.onerror = () => {
-                            if (!resolved) {
-                                resolved = true;
-                                cleanup();
-                                if (retries > 0) {
-                                    // 재시도
-                                    setTimeout(() => {
-                                        checkFile(url, fileType, retries - 1).then(resolve);
-                                    }, 1000);
-                                } else {
-                                    console.warn('파일 로딩 실패 (재시도 소진):', url);
-                                    resolve(false);
-                                }
-                            }
-                        };
-                        img.src = url;
-                    } else if (fileType === 'video') {
-                        const video = document.createElement('video');
-                        video.onloadedmetadata = () => {
-                            if (!resolved) {
-                                resolved = true;
-                                cleanup();
-                                window.URL.revokeObjectURL(video.src);
-                                resolve(true);
-                            }
-                        };
-                        video.onerror = () => {
-                            if (!resolved) {
-                                resolved = true;
-                                cleanup();
-                                window.URL.revokeObjectURL(video.src);
-                                if (retries > 0) {
-                                    // 재시도
-                                    setTimeout(() => {
-                                        checkFile(url, fileType, retries - 1).then(resolve);
-                                    }, 1000);
-                                } else {
-                                    console.warn('파일 로딩 실패 (재시도 소진):', url);
-                                    resolve(false);
-                                }
-                            }
-                        };
-                        video.src = url;
-                    } else {
-                        resolve(false);
-                    }
-                    
-                    // 5초 타임아웃
-                    timeoutId = setTimeout(() => {
-                        if (!resolved) {
-                            resolved = true;
-                            cleanup();
-                            if (retries > 0) {
-                                // 재시도
-                                setTimeout(() => {
-                                    checkFile(url, fileType, retries - 1).then(resolve);
-                                }, 1000);
-                            } else {
-                                console.warn('파일 로딩 타임아웃:', url);
-                                resolve(false);
-                            }
-                        }
-                    }, 5000);
-                };
-                
-                check();
+                if (fileType === 'image') {
+                    const img = new Image();
+                    img.onload = () => resolve(true);
+                    img.onerror = () => resolve(false);
+                    img.src = url;
+                } else if (fileType === 'video') {
+                    const video = document.createElement('video');
+                    video.onloadedmetadata = () => resolve(true);
+                    video.onerror = () => resolve(false);
+                    video.src = url;
+                } else {
+                    resolve(false);
+                }
             });
         }
 
@@ -294,26 +217,6 @@
             });
         }
 
-        // 비디오 재생 시도 함수 (재시도 로직 포함)
-        async function playVideoWithRetry(video, maxRetries = 2) {
-            for (let attempt = 0; attempt <= maxRetries; attempt++) {
-                try {
-                    await video.play();
-                    console.log('비디오 재생 성공:', video.src);
-                    return true;
-                } catch (error) {
-                    console.warn(`비디오 재생 실패 (시도 ${attempt + 1}/${maxRetries + 1}):`, error);
-                    if (attempt < maxRetries) {
-                        await new Promise(resolve => setTimeout(resolve, 500)); // 0.5초 대기 후 재시도
-                    } else {
-                        console.error('비디오 재생 최종 실패, 다음 슬라이드로 이동:', video.src);
-                        return false;
-                    }
-                }
-            }
-            return false;
-        }
-
         // 슬라이드 HTML 추가 (이미지/영상 구분)
         function addSlideToWrapper(path, fileType, duration = null) {
             const slide = document.createElement('div');
@@ -332,24 +235,39 @@
                 video.loop = false;
                 video.playsInline = true;
                 video.controls = false;
-                video.preload = 'none'; // 5단계: 리소스 최적화 - 필요할 때만 로드
                 slide.appendChild(video);
-                
-                // 비디오 에러 처리
-                video.addEventListener('error', (e) => {
-                    console.error('비디오 에러 발생:', path, e);
-                    if (swiperInstance) {
-                        setTimeout(() => {
-                            swiperInstance.slideNext();
-                        }, 1000);
-                    }
-                });
                 
                 // 영상 재생 완료 시 다음 슬라이드로 이동
                 video.addEventListener('ended', () => {
-                    console.log('비디오 재생 완료:', path);
                     if (swiperInstance) {
+                        // 다음 슬라이드 인덱스 계산
+                        const currentIndex = swiperInstance.realIndex;
+                        const nextIndex = (currentIndex + 1) % slideMetadata.length;
+                        const nextSlide = slideMetadata[nextIndex];
+                        
+                        // 다음 슬라이드로 이동
                         swiperInstance.slideNext();
+                        
+                        // 키오스크 환경 대응: 다음 슬라이드가 이미지인 경우 명시적으로 autoplay 재시작
+                        if (nextSlide && nextSlide.type === 'image') {
+                            // slideChange 이벤트가 완료될 때까지 약간의 지연 후 autoplay 재시작
+                            setTimeout(() => {
+                                if (swiperInstance && swiperInstance.autoplay) {
+                                    // autoplay가 중지되어 있으면 강제로 재시작
+                                    if (!swiperInstance.autoplay.running) {
+                                        swiperInstance.autoplay.start();
+                                    }
+                                    // delay 설정 확인 및 재시작
+                                    const config = swiperConfig || getDefaultConfig();
+                                    const defaultDelay = config.autoplay?.delay || 12000;
+                                    if (swiperInstance.params.autoplay.delay !== defaultDelay) {
+                                        swiperInstance.params.autoplay.delay = defaultDelay;
+                                        swiperInstance.autoplay.stop();
+                                        swiperInstance.autoplay.start();
+                                    }
+                                }
+                            }, 100);
+                        }
                     }
                 });
             }
@@ -412,58 +330,9 @@
                 },
                 on: {
                     slideChange: function() {
-                        lastSlideChangeTime = Date.now();
-                        
-                        // 6단계: Loop 모드 인덱스 불일치 방지
-                        let currentIndex = this.realIndex;
-                        
-                        // 인덱스 유효성 검증
-                        if (currentIndex < 0 || currentIndex >= slideMetadata.length) {
-                            console.warn('인덱스 범위 초과, DOM에서 직접 확인:', currentIndex);
-                            // DOM에서 직접 확인
-                            const currentSlideElement = this.slides[this.activeIndex];
-                            const hasVideo = currentSlideElement?.querySelector('video') !== null;
-                            const hasImage = currentSlideElement?.querySelector('img') !== null;
-                            
-                            // 안전한 폴백: DOM에 따라 타입 판단
-                            if (hasVideo) {
-                                // 비디오로 처리
-                                if (this.autoplay.running) {
-                                    this.autoplay.stop();
-                                }
-                                const video = currentSlideElement.querySelector('video');
-                                if (video) {
-                                    video.currentTime = 0;
-                                    playVideoWithRetry(video, 2);
-                                }
-                                return;
-                            } else if (hasImage) {
-                                // 이미지로 처리
-                                if (!this.autoplay.running) {
-                                    this.params.autoplay.delay = defaultDelay;
-                                    this.autoplay.start();
-                                }
-                                return;
-                            }
-                            
-                            // 메타데이터 재확인 시도
-                            currentIndex = Math.max(0, Math.min(currentIndex, slideMetadata.length - 1));
-                        }
-                        
+                        // 슬라이드 변경 시 현재 슬라이드의 타입에 따라 autoplay 처리
+                        const currentIndex = this.realIndex;
                         const currentSlide = slideMetadata[currentIndex];
-                        
-                        // 5단계: 리소스 최적화 - 보이지 않는 슬라이드의 비디오 일시정지
-                        if (this.slides && this.slides.length > 0) {
-                            this.slides.forEach((slide, idx) => {
-                                if (idx !== this.activeIndex) {
-                                    const video = slide.querySelector('video');
-                                    if (video && !video.paused) {
-                                        video.pause();
-                                        video.currentTime = 0;
-                                    }
-                                }
-                            });
-                        }
                         
                         if (currentSlide) {
                             if (currentSlide.type === 'video') {
@@ -477,52 +346,38 @@
                                 const video = currentSlideElement.querySelector('video');
                                 if (video) {
                                     video.currentTime = 0;
-                                    
-                                    // 기존 타임아웃 클리어
-                                    if (videoPlayTimeout) {
-                                        clearTimeout(videoPlayTimeout);
-                                    }
-                                    
-                                    // 재생 시도 (재시도 로직 포함)
-                                    playVideoWithRetry(video, 2).then(success => {
-                                        if (!success && swiperInstance) {
-                                            // 재생 실패 시 3초 후 다음 슬라이드로
-                                            videoPlayTimeout = setTimeout(() => {
-                                                console.warn('비디오 재생 실패로 인한 자동 넘김:', video.src);
-                                                swiperInstance.slideNext();
-                                            }, 3000);
-                                        }
-                                    });
-                                    
-                                    // 재생 상태 모니터링 (3초 내 재생 시작 안 되면 다음 슬라이드로)
-                                    let playCheckCount = 0;
-                                    const playCheckInterval = setInterval(() => {
-                                        playCheckCount++;
-                                        if (video.readyState >= 2 && !video.paused) {
-                                            clearInterval(playCheckInterval);
-                                        } else if (playCheckCount >= 6) { // 3초 (0.5초 * 6)
-                                            clearInterval(playCheckInterval);
-                                            if (video.paused && swiperInstance) {
-                                                console.warn('비디오 재생 타임아웃, 다음 슬라이드로:', video.src);
-                                                swiperInstance.slideNext();
-                                            }
-                                        }
-                                    }, 500);
+                                    video.play().catch(e => console.warn('Video autoplay failed:', e));
                                 }
                             } else {
                                 // 이미지/GIF인 경우: setup.json의 delay로 autoplay 재시작
                                 // 클로저로 캡처한 defaultDelay 사용 (setup.json에서 가져온 값)
                                 
-                                // autoplay가 중지된 경우에만 재시작 (불필요한 stop/start 방지)
-                                if (!this.autoplay.running) {
+                                // 키오스크 환경 대응: autoplay 상태와 관계없이 항상 재시작 보장
+                                const needsRestart = this.params.autoplay.delay !== defaultDelay || !this.autoplay.running;
+                                
+                                if (needsRestart) {
                                     this.params.autoplay.delay = defaultDelay;
+                                    if (this.autoplay.running) {
+                                        this.autoplay.stop();
+                                    }
+                                    // 약간의 지연 후 재시작하여 키오스크 환경의 타이밍 문제 해결
+                                    setTimeout(() => {
+                                        if (this.autoplay && !this.autoplay.running) {
+                                            this.autoplay.start();
+                                        }
+                                    }, 50);
                                     this.autoplay.start();
-                                    console.log('이미지/GIF 슬라이드 - autoplay 재시작:', defaultDelay + 'ms');
-                                } else if (this.params.autoplay.delay !== defaultDelay) {
-                                    // delay만 변경 (이미 실행 중이면 stop/start 하지 않음)
-                                    this.params.autoplay.delay = defaultDelay;
-                                    this.autoplay.update(); // delay 업데이트만
-                                    console.log('이미지/GIF 슬라이드 - autoplay delay 업데이트:', defaultDelay + 'ms');
+                                    console.log('이미지/GIF 슬라이드 - autoplay delay 설정:', defaultDelay + 'ms');
+                                } else {
+                                    // delay는 맞지만 autoplay가 중지된 경우에도 재시작
+                                    if (!this.autoplay.running) {
+                                        setTimeout(() => {
+                                            if (this.autoplay && !this.autoplay.running) {
+                                                this.autoplay.start();
+                                            }
+                                        }, 50);
+                                        this.autoplay.start();
+                                    }
                                 }
                             }
                         }
@@ -547,140 +402,10 @@
                     const firstSlideElement = swiperInstance.slides[swiperInstance.activeIndex];
                     const video = firstSlideElement?.querySelector('video');
                     if (video) {
-                        playVideoWithRetry(video, 2).then(success => {
-                            if (!success) {
-                                console.warn('첫 번째 비디오 재생 실패, 다음 슬라이드로');
-                                setTimeout(() => {
-                                    if (swiperInstance) {
-                                        swiperInstance.slideNext();
-                                    }
-                                }, 3000);
-                            }
-                        });
+                        video.play().catch(e => console.warn('Video autoplay failed:', e));
                     }
                 }, 100);
             }
-            
-            // 2단계: autoplay 상태 모니터링 시작
-            startAutoplayMonitor(defaultDelay);
-            
-            // 3단계: 슬라이드 변경 모니터링 시작
-            startSlideChangeMonitor();
-            
-            // 4단계: 비디오 ended 이벤트 대체 감지 시작
-            startVideoEndMonitor();
-        }
-
-        // 2단계: autoplay 상태 모니터링 함수
-        function startAutoplayMonitor(defaultDelay) {
-            if (autoplayMonitorInterval) {
-                clearInterval(autoplayMonitorInterval);
-            }
-            
-            autoplayMonitorInterval = setInterval(() => {
-                if (!swiperInstance) return;
-                
-                const currentIndex = swiperInstance.realIndex;
-                const currentSlide = slideMetadata[currentIndex];
-                
-                if (currentSlide && currentSlide.type === 'image') {
-                    // 이미지 슬라이드인데 autoplay가 멈춰있으면 재시작
-                    if (!swiperInstance.autoplay.running) {
-                        console.warn('autoplay가 멈춰있음 감지, 재시작 시도');
-                        swiperInstance.params.autoplay.delay = defaultDelay;
-                        swiperInstance.autoplay.start();
-                    }
-                }
-            }, 5000); // 5초마다 체크
-        }
-
-        // 3단계: 슬라이드 변경 모니터링 함수
-        function startSlideChangeMonitor() {
-            if (slideChangeMonitorInterval) {
-                clearInterval(slideChangeMonitorInterval);
-            }
-            
-            slideChangeMonitorInterval = setInterval(() => {
-                if (!swiperInstance) return;
-                
-                const timeSinceLastChange = Date.now() - lastSlideChangeTime;
-                
-                // 30초 동안 슬라이드 변경이 없으면 강제 리셋
-                if (timeSinceLastChange > 30000) {
-                    console.error('슬라이드 장시간 멈춤 감지 (30초), 강제 리셋');
-                    lastSlideChangeTime = Date.now();
-                    
-                    // 첫 슬라이드로 이동 후 재시작
-                    swiperInstance.slideTo(0);
-                    
-                    // autoplay 재시작
-                    const config = swiperConfig || getDefaultConfig();
-                    const defaultDelay = config.autoplay?.delay || 12000;
-                    swiperInstance.params.autoplay.delay = defaultDelay;
-                    if (!swiperInstance.autoplay.running) {
-                        swiperInstance.autoplay.start();
-                    }
-                    
-                    // 첫 슬라이드가 비디오면 재생 시도
-                    if (slideMetadata.length > 0 && slideMetadata[0].type === 'video') {
-                        setTimeout(() => {
-                            const firstSlideElement = swiperInstance.slides[swiperInstance.activeIndex];
-                            const video = firstSlideElement?.querySelector('video');
-                            if (video) {
-                                playVideoWithRetry(video, 2);
-                            }
-                        }, 500);
-                    }
-                }
-                // 15초 동안 슬라이드 변경이 없으면 강제로 다음 슬라이드로
-                else if (timeSinceLastChange > 15000) {
-                    console.warn('슬라이드 변경 없음 감지 (15초), 강제로 다음 슬라이드로 이동');
-                    lastSlideChangeTime = Date.now();
-                    swiperInstance.slideNext();
-                }
-            }, 5000); // 5초마다 체크
-        }
-
-        // 4단계: 비디오 ended 이벤트 대체 감지 함수
-        function startVideoEndMonitor() {
-            if (videoEndCheckInterval) {
-                clearInterval(videoEndCheckInterval);
-            }
-            
-            videoEndCheckInterval = setInterval(() => {
-                if (!swiperInstance) return;
-                
-                const currentIndex = swiperInstance.realIndex;
-                const currentSlide = slideMetadata[currentIndex];
-                
-                if (currentSlide && currentSlide.type === 'video') {
-                    const currentSlideElement = swiperInstance.slides[swiperInstance.activeIndex];
-                    const video = currentSlideElement?.querySelector('video');
-                    
-                    if (video && !video.paused) {
-                        // 비디오가 재생 중일 때 currentTime과 duration 체크
-                        const duration = video.duration || currentSlide.duration || 5;
-                        const currentTime = video.currentTime || 0;
-                        
-                        // duration에 근접하면 (0.5초 이내) 완료로 간주
-                        if (duration > 0 && currentTime >= duration - 0.5) {
-                            console.log('비디오 재생 완료 감지 (timeupdate):', currentSlide.path);
-                            if (swiperInstance) {
-                                swiperInstance.slideNext();
-                            }
-                        }
-                        
-                        // 비디오 길이 + 1초 타임아웃 체크
-                        const maxDuration = duration + 1;
-                        if (currentTime >= maxDuration) {
-                            console.warn('비디오 타임아웃, 다음 슬라이드로:', currentSlide.path);
-                            if (swiperInstance) {
-                                swiperInstance.slideNext();
-                            }
-                        }
-                    }
-                }
-            }, 500); // 0.5초마다 체크
         }
 
         // 실행: setup.json 로드 후 이미지 로드 및 Swiper 초기화
@@ -688,59 +413,6 @@
             await loadSwiperConfig();
             await loadAndRenderPosters();
         })();
-
-        // 7단계: 백그라운드/포커스 처리
-        function handleVisibilityChange() {
-            if (document.hidden) {
-                console.log('페이지가 백그라운드로 전환됨');
-                // 백그라운드로 전환 시 비디오 일시정지
-                if (swiperInstance) {
-                    const currentSlideElement = swiperInstance.slides[swiperInstance.activeIndex];
-                    const video = currentSlideElement?.querySelector('video');
-                    if (video && !video.paused) {
-                        video.pause();
-                    }
-                }
-            } else {
-                console.log('페이지가 포그라운드로 복귀함');
-                // 포그라운드 복귀 시 현재 슬라이드 타입에 따라 재시작
-                if (swiperInstance) {
-                    const currentIndex = swiperInstance.realIndex;
-                    const currentSlide = slideMetadata[currentIndex];
-                    
-                    if (currentSlide) {
-                        if (currentSlide.type === 'video') {
-                            // 비디오 재생 재시도
-                            const currentSlideElement = swiperInstance.slides[swiperInstance.activeIndex];
-                            const video = currentSlideElement?.querySelector('video');
-                            if (video) {
-                                playVideoWithRetry(video, 2);
-                            }
-                        } else {
-                            // 이미지면 autoplay 재시작
-                            if (!swiperInstance.autoplay.running) {
-                                const config = swiperConfig || getDefaultConfig();
-                                const defaultDelay = config.autoplay?.delay || 12000;
-                                swiperInstance.params.autoplay.delay = defaultDelay;
-                                swiperInstance.autoplay.start();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', handleVisibilityChange);
-        window.addEventListener('blur', () => {
-            if (swiperInstance) {
-                const currentSlideElement = swiperInstance.slides[swiperInstance.activeIndex];
-                const video = currentSlideElement?.querySelector('video');
-                if (video && !video.paused) {
-                    video.pause();
-                }
-            }
-        });
 
         // 키오스크 전용: 우클릭, 드래그, 선택 방지
         document.addEventListener('contextmenu', e => e.preventDefault());
