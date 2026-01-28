@@ -154,6 +154,7 @@
         
         // Swiper 초기화 및 시작
         let swiper;
+        let previousVideo = null; // 이전 영상 참조 저장
         
         async function initSwiper() {
             const slides = await createSlides();
@@ -192,48 +193,98 @@
         
         // 슬라이드별 autoplay 설정
         function setupSlideAutoplay(swiperInstance) {
-            const realIndex = swiperInstance.realIndex; // loop 모드에서 실제 인덱스
-            const slides = swiperInstance.slides;
-            const currentSlide = slides[realIndex];
+            // 이전 영상 정리
+            if (previousVideo) {
+                previousVideo.onended = null;
+                previousVideo.pause();
+                previousVideo.currentTime = 0;
+                previousVideo = null;
+            }
             
-            if (!currentSlide) return;
+            // 현재 활성 슬라이드 찾기 (Loop 모드 고려)
+            const activeIndex = swiperInstance.activeIndex;
+            const realIndex = swiperInstance.realIndex;
+            const slides = swiperInstance.slides;
+            let currentSlide = null;
+            
+            // Loop 모드가 활성화된 경우 realIndex를 사용하여 실제 슬라이드 찾기
+            if (swiperInstance.params.loop) {
+                // 원본 슬라이드 컨테이너에서 실제 슬라이드 찾기
+                const wrapper = swiperInstance.wrapperEl;
+                if (wrapper) {
+                    const originalSlides = wrapper.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)');
+                    if (originalSlides[realIndex]) {
+                        currentSlide = originalSlides[realIndex];
+                    }
+                }
+                
+                // 위 방법이 실패한 경우 activeIndex의 슬라이드 사용
+                if (!currentSlide && slides[activeIndex]) {
+                    currentSlide = slides[activeIndex];
+                }
+            } else {
+                // Loop 모드가 아닌 경우 activeIndex 사용
+                currentSlide = slides[activeIndex];
+            }
+            
+            if (!currentSlide || !currentSlide.querySelector) {
+                console.warn('슬라이드를 찾을 수 없습니다. activeIndex:', activeIndex, 'realIndex:', realIndex);
+                return;
+            }
             
             const img = currentSlide.querySelector('img');
             const video = currentSlide.querySelector('video');
             
             // 현재 슬라이드가 이미지인 경우
             if (img) {
-                // autoplay 재시작 (delay 업데이트를 위해 stop 후 start)
+                // autoplay 재시작 (더 안전한 방법)
                 swiperInstance.autoplay.stop();
                 swiperInstance.params.autoplay.delay = 12000; // 12초
-                swiperInstance.autoplay.start();
+                // 약간의 지연 후 재시작하여 타이밍 이슈 방지
+                setTimeout(() => {
+                    if (swiperInstance && swiperInstance.autoplay) {
+                        swiperInstance.autoplay.start();
+                    }
+                }, 100);
             }
             
             // 현재 슬라이드가 영상인 경우
             if (video) {
+                // 이전 영상 참조 저장
+                previousVideo = video;
+                
                 swiperInstance.autoplay.stop();
                 
-                // 기존 이벤트 리스너 제거
+                // 기존 이벤트 리스너 완전히 제거
                 video.onended = null;
+                video.onerror = null;
                 
                 // 영상 재생
                 video.currentTime = 0;
                 const playPromise = video.play();
                 
                 if (playPromise !== undefined) {
-                    playPromise.catch(e => {
+                    playPromise.then(() => {
+                        // 재생 성공
+                    }).catch(e => {
                         console.error('영상 재생 실패:', e);
                         // 재생 실패 시 3초 후 다음 슬라이드로
                         setTimeout(() => {
-                            swiperInstance.slideNext();
+                            if (swiperInstance && swiperInstance.slideNext) {
+                                swiperInstance.slideNext();
+                            }
                         }, 3000);
                     });
                 }
                 
-                // 영상 재생 완료 시 다음 슬라이드로
-                video.onended = function() {
-                    swiperInstance.slideNext();
+                // 영상 재생 완료 시 다음 슬라이드로 (안전한 이벤트 바인딩)
+                const handleVideoEnd = function() {
+                    if (swiperInstance && swiperInstance.slideNext) {
+                        swiperInstance.slideNext();
+                    }
                 };
+                
+                video.onended = handleVideoEnd;
             }
         }
         
