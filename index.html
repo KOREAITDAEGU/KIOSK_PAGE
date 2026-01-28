@@ -201,34 +201,13 @@
                 previousVideo = null;
             }
             
-            // 현재 활성 슬라이드 찾기 (Loop 모드 고려)
+            // 현재 활성 슬라이드 찾기 - activeIndex를 직접 사용 (가장 안전한 방법)
             const activeIndex = swiperInstance.activeIndex;
-            const realIndex = swiperInstance.realIndex;
             const slides = swiperInstance.slides;
-            let currentSlide = null;
-            
-            // Loop 모드가 활성화된 경우 realIndex를 사용하여 실제 슬라이드 찾기
-            if (swiperInstance.params.loop) {
-                // 원본 슬라이드 컨테이너에서 실제 슬라이드 찾기
-                const wrapper = swiperInstance.wrapperEl;
-                if (wrapper) {
-                    const originalSlides = wrapper.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)');
-                    if (originalSlides[realIndex]) {
-                        currentSlide = originalSlides[realIndex];
-                    }
-                }
-                
-                // 위 방법이 실패한 경우 activeIndex의 슬라이드 사용
-                if (!currentSlide && slides[activeIndex]) {
-                    currentSlide = slides[activeIndex];
-                }
-            } else {
-                // Loop 모드가 아닌 경우 activeIndex 사용
-                currentSlide = slides[activeIndex];
-            }
+            const currentSlide = slides[activeIndex];
             
             if (!currentSlide || !currentSlide.querySelector) {
-                console.warn('슬라이드를 찾을 수 없습니다. activeIndex:', activeIndex, 'realIndex:', realIndex);
+                console.warn('슬라이드를 찾을 수 없습니다. activeIndex:', activeIndex);
                 return;
             }
             
@@ -237,15 +216,14 @@
             
             // 현재 슬라이드가 이미지인 경우
             if (img) {
-                // autoplay 재시작 (더 안전한 방법)
-                swiperInstance.autoplay.stop();
-                swiperInstance.params.autoplay.delay = 12000; // 12초
-                // 약간의 지연 후 재시작하여 타이밍 이슈 방지
-                setTimeout(() => {
-                    if (swiperInstance && swiperInstance.autoplay) {
-                        swiperInstance.autoplay.start();
-                    }
-                }, 100);
+                // autoplay가 이미 실행 중이면 delay만 업데이트
+                if (swiperInstance.autoplay.running) {
+                    swiperInstance.params.autoplay.delay = 12000; // 12초
+                } else {
+                    // autoplay가 중지된 경우에만 재시작
+                    swiperInstance.params.autoplay.delay = 12000; // 12초
+                    swiperInstance.autoplay.start();
+                }
             }
             
             // 현재 슬라이드가 영상인 경우
@@ -253,6 +231,7 @@
                 // 이전 영상 참조 저장
                 previousVideo = video;
                 
+                // autoplay 중지
                 swiperInstance.autoplay.stop();
                 
                 // 기존 이벤트 리스너 완전히 제거
@@ -279,7 +258,8 @@
                 
                 // 영상 재생 완료 시 다음 슬라이드로 (안전한 이벤트 바인딩)
                 const handleVideoEnd = function() {
-                    if (swiperInstance && swiperInstance.slideNext) {
+                    // 이벤트가 현재 영상에 바인딩되어 있는지 확인
+                    if (video === previousVideo && swiperInstance && swiperInstance.slideNext) {
                         swiperInstance.slideNext();
                     }
                 };
