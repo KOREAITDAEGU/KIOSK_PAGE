@@ -155,6 +155,7 @@
         // Swiper 초기화 및 시작
         let swiper;
         let previousVideo = null; // 이전 영상 참조 저장
+        let slideChangeCount = 0; // 슬라이드 변경 횟수 카운터
         
         async function initSwiper() {
             const slides = await createSlides();
@@ -182,7 +183,13 @@
                         setupSlideAutoplay(this);
                     },
                     slideChange: function() {
-                        setupSlideAutoplay(this);
+                        slideChangeCount++;
+                        // 3회 주기마다 초기화
+                        if (slideChangeCount % 3 === 0) {
+                            resetSwiper();
+                        } else {
+                            setupSlideAutoplay(this);
+                        }
                     }
                 }
             });
@@ -266,6 +273,39 @@
                 
                 video.onended = handleVideoEnd;
             }
+        }
+        
+        // Swiper 초기화 함수 (3회 주기마다 호출)
+        async function resetSwiper() {
+            // 모든 비디오 정리 (재생 중이어도 강제 중지)
+            if (previousVideo) {
+                previousVideo.onended = null;
+                previousVideo.onerror = null;
+                previousVideo.pause();
+                previousVideo.currentTime = 0;
+                previousVideo = null;
+            }
+            
+            // 모든 슬라이드의 비디오 정리
+            const allVideos = document.querySelectorAll('.swiper-slide video');
+            allVideos.forEach(video => {
+                video.onended = null;
+                video.onerror = null;
+                video.pause();
+                video.currentTime = 0;
+            });
+            
+            // Swiper 인스턴스 제거
+            if (swiper) {
+                swiper.destroy(true, true);
+                swiper = null;
+            }
+            
+            // 슬라이드 변경 카운터 리셋
+            slideChangeCount = 0;
+            
+            // Swiper 재초기화
+            await initSwiper();
         }
         
         // 초기화 실행
