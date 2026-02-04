@@ -155,7 +155,9 @@
         // Swiper 초기화 및 시작
         let swiper;
         let previousVideo = null; // 이전 영상 참조 저장
-        let slideChangeCount = 0; // 슬라이드 변경 횟수 카운터
+        let totalSlideCount = 0; // 전체 슬라이드 개수
+        let repeatCount = 0; // 전체 반복 회수 (회전수)
+        let previousRealIndex = -1; // 이전 realIndex 추적
         
         async function initSwiper() {
             const slides = await createSlides();
@@ -164,6 +166,12 @@
                 console.warn('슬라이드할 파일이 없습니다.');
                 return;
             }
+            
+            // 전체 슬라이드 개수 저장
+            totalSlideCount = slides.length;
+            // 반복 카운터 초기화
+            repeatCount = 0;
+            previousRealIndex = -1;
             
             // Swiper 초기화
             swiper = new Swiper('.swiper', {
@@ -180,16 +188,29 @@
                 },
                 on: {
                     init: function() {
+                        // 초기 슬라이드 인덱스 기록
+                        previousRealIndex = this.realIndex;
                         setupSlideAutoplay(this);
                     },
                     slideChange: function() {
-                        slideChangeCount++;
-                        // 3회 주기마다 초기화
-                        if (slideChangeCount % 3 === 0) {
-                            resetSwiper();
-                        } else {
-                            setupSlideAutoplay(this);
+                        const currentRealIndex = this.realIndex;
+                        
+                        // 마지막 슬라이드에서 첫 번째 슬라이드로 돌아왔을 때 (한 바퀴 완료)
+                        // previousRealIndex가 마지막 인덱스이고, currentRealIndex가 0이면 한 바퀴 완료
+                        if (previousRealIndex === totalSlideCount - 1 && currentRealIndex === 0) {
+                            repeatCount++;
+                            
+                            // 3회 반복(회전) 이상이면 초기화
+                            if (repeatCount >= 3) {
+                                resetSwiper();
+                                return;
+                            }
                         }
+                        
+                        // 이전 인덱스 업데이트
+                        previousRealIndex = currentRealIndex;
+                        
+                        setupSlideAutoplay(this);
                     }
                 }
             });
@@ -301,8 +322,9 @@
                 swiper = null;
             }
             
-            // 슬라이드 변경 카운터 리셋
-            slideChangeCount = 0;
+            // 반복 카운터 리셋
+            repeatCount = 0;
+            previousRealIndex = -1;
             
             // Swiper 재초기화
             await initSwiper();
