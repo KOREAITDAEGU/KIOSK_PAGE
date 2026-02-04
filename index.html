@@ -244,14 +244,16 @@
             
             // 현재 슬라이드가 이미지인 경우
             if (img) {
-                // autoplay가 이미 실행 중이면 delay만 업데이트
-                if (swiperInstance.autoplay.running) {
-                    swiperInstance.params.autoplay.delay = 12000; // 12초
-                } else {
-                    // autoplay가 중지된 경우에만 재시작
-                    swiperInstance.params.autoplay.delay = 12000; // 12초
-                    swiperInstance.autoplay.start();
-                }
+                // autoplay 완전히 재초기화 (비디오에서 이미지로 전환 시 타이머 리셋 보장)
+                swiperInstance.autoplay.stop();
+                swiperInstance.params.autoplay.delay = 12000; // 12초
+                
+                // 약간의 지연 후 autoplay 재시작 (타이머 리셋 보장)
+                setTimeout(() => {
+                    if (swiperInstance && swiperInstance.autoplay) {
+                        swiperInstance.autoplay.start();
+                    }
+                }, 100);
             }
             
             // 현재 슬라이드가 영상인 경우
