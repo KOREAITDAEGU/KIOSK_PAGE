@@ -7,6 +7,7 @@
     
     <!-- Swiper CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">
     
     <style>
         * {
@@ -45,6 +46,42 @@
             height: 100%;
             object-fit: contain;
         }
+        /* 우측 하단 몽실이 → 쉼표 아케이드(게임) */
+        .play {
+            position: fixed;
+            right: 3vmin;
+            bottom: 3vmin;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: .4vmin;
+            text-decoration: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .play .face {
+            width: clamp(72px, 13vmin, 150px);
+            height: clamp(72px, 13vmin, 150px);
+            display: grid;
+            place-items: center;
+            background: #FFF6DE;
+            border: 4px solid #2E2A4F;
+            border-radius: 50%;
+            box-shadow: 0 6px 0 #2E2A4F, 0 10px 24px rgba(0, 0, 0, .45);
+            animation: bob 2.4s ease-in-out infinite;
+        }
+        .play .face svg { width: 78%; height: 78%; }
+        .play .label {
+            padding: .3em .9em;
+            font: 700 clamp(14px, 2.4vmin, 26px)/1.2 'Jua', 'Malgun Gothic', sans-serif;
+            color: #2E2A4F;
+            background: #FFD66B;
+            border: 3px solid #2E2A4F;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .play:active .face { transform: translateY(5px); box-shadow: 0 1px 0 #2E2A4F; animation: none; }
+        @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
     </style>
 </head>
 <body>
@@ -54,6 +91,12 @@
             <!-- 슬라이드가 동적으로 생성됩니다 -->
         </div>
     </div>
+
+    <!-- 몽실이를 누르면 쉼표 아케이드로 -->
+    <a class="play" href="https://shimpyo-arcade.pages.dev/" aria-label="쉼표 아케이드 게임하러 가기">
+        <span class="face"><svg viewBox="0 0 120 120" aria-hidden="true"><path d="M60 22c5-12 16-16 24-12-4 8-13 13-24 12z" fill="#7FD8BE" stroke="#2E2A4F" stroke-width="3.5" stroke-linejoin="round"/><path d="M60 22C94 22 112 46 112 72C112 98 90 112 60 112C30 112 8 98 8 72C8 46 26 22 60 22Z" fill="#fff" stroke="#2E2A4F" stroke-width="4"/><ellipse cx="32" cy="80" rx="9" ry="6" fill="#FFB8B0"/><ellipse cx="88" cy="80" rx="9" ry="6" fill="#FFB8B0"/><path d="M38 70q6-8 12 0M70 70q6-8 12 0" stroke="#2E2A4F" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M53 82q7 8 14 0" stroke="#2E2A4F" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg></span>
+        <span class="label">게임하기</span>
+    </a>
 
     <!-- Swiper JS -->
     <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
