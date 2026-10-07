@@ -60,20 +60,20 @@
             -webkit-tap-highlight-color: transparent;
         }
         .play .face {
-            width: clamp(72px, 13vmin, 150px);
-            height: clamp(72px, 13vmin, 150px);
+            width: clamp(56px, 9.5vmin, 110px);
+            height: clamp(56px, 9.5vmin, 110px);
             display: grid;
             place-items: center;
             background: #FFF6DE;
-            border: 4px solid #2E2A4F;
+            border: 3px solid #2E2A4F;
             border-radius: 50%;
-            box-shadow: 0 6px 0 #2E2A4F, 0 10px 24px rgba(0, 0, 0, .45);
+            box-shadow: 0 4px 0 #2E2A4F, 0 8px 18px rgba(0, 0, 0, .45);
             animation: bob 2.4s ease-in-out infinite;
         }
         .play .face svg { width: 78%; height: 78%; }
         .play .label {
             padding: .3em .9em;
-            font: 700 clamp(14px, 2.4vmin, 26px)/1.2 'Jua', 'Malgun Gothic', sans-serif;
+            font: 700 clamp(12px, 1.8vmin, 20px)/1.2 'Jua', 'Malgun Gothic', sans-serif;
             color: #2E2A4F;
             background: #FFD66B;
             border: 3px solid #2E2A4F;
@@ -81,7 +81,7 @@
             white-space: nowrap;
         }
         .play:active .face { transform: translateY(5px); box-shadow: 0 1px 0 #2E2A4F; animation: none; }
-        @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+        @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
     </style>
 </head>
 <body>
