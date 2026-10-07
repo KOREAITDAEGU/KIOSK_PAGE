@@ -60,8 +60,8 @@
             -webkit-tap-highlight-color: transparent;
         }
         .play .face {
-            width: clamp(56px, 9.5vmin, 110px);
-            height: clamp(56px, 9.5vmin, 110px);
+            width: clamp(68px, 12vmin, 140px);
+            height: clamp(68px, 12vmin, 140px);
             display: grid;
             place-items: center;
             background: #FFF6DE;
@@ -73,7 +73,7 @@
         .play .face svg { width: 78%; height: 78%; }
         .play .label {
             padding: .3em .9em;
-            font: 700 clamp(12px, 1.8vmin, 20px)/1.2 'Jua', 'Malgun Gothic', sans-serif;
+            font: 700 clamp(14px, 2.3vmin, 25px)/1.2 'Jua', 'Malgun Gothic', sans-serif;
             color: #2E2A4F;
             background: #FFD66B;
             border: 3px solid #2E2A4F;
@@ -144,6 +144,7 @@
         // 슬라이드 생성 함수
         async function createSlides() {
             const wrapper = document.getElementById('swiper-wrapper');
+            wrapper.replaceChildren(); // 다시 만들 때 예전 슬라이드가 쌓이지 않게
             const slides = [];
             
             // 01부터 10까지 파일 확인
@@ -201,6 +202,8 @@
         let totalSlideCount = 0; // 전체 슬라이드 개수
         let repeatCount = 0; // 전체 반복 회수 (회전수)
         let previousRealIndex = -1; // 이전 realIndex 추적
+        let nextTimer = null; // 다음 슬라이드로 넘기는 타이머 (이미지 12초 / 영상 안전장치)
+        const IMAGE_DELAY = 12000;
         
         async function initSwiper() {
             const slides = await createSlides();
@@ -225,15 +228,12 @@
                 loop: slides.length > 1, // 슬라이드가 2개 이상일 때만 loop 활성화
                 speed: 2000,
                 allowTouchMove: false,
-                autoplay: {
-                    delay: 12000, // 기본 12초 (이미지용)
-                    disableOnInteraction: false,
-                },
+                // 자동 넘김은 Swiper autoplay 대신 setupSlideAutoplay의 타이머가 맡아요.
+                // (autoplay를 쓰면 반복 2바퀴째부터 영상이 12초에 잘렸어요)
                 on: {
                     init: function() {
                         // 초기 슬라이드 인덱스 기록
                         previousRealIndex = this.realIndex;
-                        setupSlideAutoplay(this);
                     },
                     slideChange: function() {
                         const currentRealIndex = this.realIndex;
@@ -262,8 +262,18 @@
             setupSlideAutoplay(swiper);
         }
         
-        // 슬라이드별 autoplay 설정
+        // 다음 슬라이드로 넘기기 예약
+        function scheduleNext(swiperInstance, ms) {
+            clearTimeout(nextTimer);
+            nextTimer = setTimeout(() => {
+                if (swiper === swiperInstance) swiperInstance.slideNext();
+            }, ms);
+        }
+
+        // 슬라이드별 자동 넘김 설정: 이미지는 12초, 영상은 끝날 때
         function setupSlideAutoplay(swiperInstance) {
+            clearTimeout(nextTimer);
+
             // 이전 영상 정리
             if (previousVideo) {
                 previousVideo.onended = null;
@@ -271,78 +281,50 @@
                 previousVideo.currentTime = 0;
                 previousVideo = null;
             }
-            
+
             // 현재 활성 슬라이드 찾기 - activeIndex를 직접 사용 (가장 안전한 방법)
-            const activeIndex = swiperInstance.activeIndex;
-            const slides = swiperInstance.slides;
-            const currentSlide = slides[activeIndex];
-            
+            const currentSlide = swiperInstance.slides[swiperInstance.activeIndex];
             if (!currentSlide || !currentSlide.querySelector) {
-                console.warn('슬라이드를 찾을 수 없습니다. activeIndex:', activeIndex);
+                console.warn('슬라이드를 찾을 수 없습니다. activeIndex:', swiperInstance.activeIndex);
+                scheduleNext(swiperInstance, IMAGE_DELAY);
                 return;
             }
-            
-            const img = currentSlide.querySelector('img');
+
             const video = currentSlide.querySelector('video');
-            
-            // 현재 슬라이드가 이미지인 경우
-            if (img) {
-                // autoplay 완전히 재초기화 (비디오에서 이미지로 전환 시 타이머 리셋 보장)
-                swiperInstance.autoplay.stop();
-                swiperInstance.params.autoplay.delay = 12000; // 12초
-                
-                // 약간의 지연 후 autoplay 재시작 (타이머 리셋 보장)
-                setTimeout(() => {
-                    if (swiperInstance && swiperInstance.autoplay) {
-                        swiperInstance.autoplay.start();
-                    }
-                }, 100);
+
+            // 이미지: 12초 뒤 다음으로
+            if (!video) {
+                scheduleNext(swiperInstance, IMAGE_DELAY);
+                return;
             }
-            
-            // 현재 슬라이드가 영상인 경우
-            if (video) {
-                // 이전 영상 참조 저장
-                previousVideo = video;
-                
-                // autoplay 중지
-                swiperInstance.autoplay.stop();
-                
-                // 기존 이벤트 리스너 완전히 제거
-                video.onended = null;
-                video.onerror = null;
-                
-                // 영상 재생
-                video.currentTime = 0;
-                const playPromise = video.play();
-                
-                if (playPromise !== undefined) {
-                    playPromise.then(() => {
-                        // 재생 성공
-                    }).catch(e => {
-                        console.error('영상 재생 실패:', e);
-                        // 재생 실패 시 3초 후 다음 슬라이드로
-                        setTimeout(() => {
-                            if (swiperInstance && swiperInstance.slideNext) {
-                                swiperInstance.slideNext();
-                            }
-                        }, 3000);
-                    });
+
+            // 영상: 처음부터 재생하고, 끝나면 다음으로
+            previousVideo = video;
+            video.onended = () => {
+                if (video === previousVideo) scheduleNext(swiperInstance, 0);
+            };
+            video.currentTime = 0;
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(e => {
+                    console.error('영상 재생 실패:', e);
+                    // 재생 실패 시 3초 후 다음 슬라이드로
+                    if (video === previousVideo) scheduleNext(swiperInstance, 3000);
+                });
+            }
+            // 안전장치: 영상이 멈춰서 끝나지 않아도 길이 + 5초 뒤에는 넘어가요
+            const guard = () => {
+                if (video === previousVideo && isFinite(video.duration)) {
+                    scheduleNext(swiperInstance, (video.duration + 5) * 1000);
                 }
-                
-                // 영상 재생 완료 시 다음 슬라이드로 (안전한 이벤트 바인딩)
-                const handleVideoEnd = function() {
-                    // 이벤트가 현재 영상에 바인딩되어 있는지 확인
-                    if (video === previousVideo && swiperInstance && swiperInstance.slideNext) {
-                        swiperInstance.slideNext();
-                    }
-                };
-                
-                video.onended = handleVideoEnd;
-            }
+            };
+            if (video.readyState >= 1) guard();
+            else video.addEventListener('loadedmetadata', guard, { once: true });
         }
-        
+
         // Swiper 초기화 함수 (3회 주기마다 호출)
         async function resetSwiper() {
+            clearTimeout(nextTimer);
             // 모든 비디오 정리 (재생 중이어도 강제 중지)
             if (previousVideo) {
                 previousVideo.onended = null;
